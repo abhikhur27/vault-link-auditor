@@ -26,6 +26,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--root", type=Path, required=True, help="Vault or markdown folder root.")
     parser.add_argument("--json-out", type=Path, help="Optional JSON path for the full report.")
     parser.add_argument("--hide-orphans", action="store_true", help="Skip orphan-note reporting.")
+    parser.add_argument(
+        "--exclude-glob",
+        action="append",
+        default=[],
+        help="Repeatable glob relative to the root for notes or folders to exclude.",
+    )
     return parser.parse_args()
 
 
@@ -41,9 +47,16 @@ def extract_title(path: Path, content: str) -> str:
     return path.stem.replace("-", " ").replace("_", " ").strip()
 
 
-def load_notes(root: Path) -> list[Note]:
+def should_exclude(path: Path, root: Path, exclude_globs: list[str]) -> bool:
+    relative = path.relative_to(root).as_posix()
+    return any(path.match(pattern) or relative == pattern or relative.startswith(pattern.rstrip("/") + "/") for pattern in exclude_globs)
+
+
+def load_notes(root: Path, exclude_globs: list[str]) -> list[Note]:
     notes: list[Note] = []
     for path in sorted(root.rglob("*.md")):
+        if should_exclude(path, root, exclude_globs):
+            continue
         content = path.read_text(encoding="utf-8", errors="ignore")
         notes.append(
             Note(
@@ -84,8 +97,8 @@ def resolve_markdown_target(source: Note, root: Path, target: str) -> str | None
     return normalize_note_key(rel.as_posix())
 
 
-def audit(root: Path, hide_orphans: bool) -> dict[str, object]:
-    notes = load_notes(root)
+def audit(root: Path, hide_orphans: bool, exclude_globs: list[str]) -> dict[str, object]:
+    notes = load_notes(root, exclude_globs)
     lookup = build_lookup(notes)
     inbound_counts: dict[str, int] = defaultdict(int)
     broken_links: list[dict[str, str]] = []
@@ -148,6 +161,7 @@ def audit(root: Path, hide_orphans: bool) -> dict[str, object]:
 
     return {
         "root": str(root.resolve()),
+        "excluded_globs": exclude_globs,
         "note_count": len(notes),
         "broken_links": broken_links,
         "ambiguous_links": ambiguous_links,
@@ -196,7 +210,7 @@ def print_report(report: dict[str, object], hide_orphans: bool) -> None:
 
 def main() -> None:
     args = parse_args()
-    report = audit(args.root, hide_orphans=args.hide_orphans)
+    report = audit(args.root, hide_orphans=args.hide_orphans, exclude_globs=args.exclude_glob)
     print_report(report, hide_orphans=args.hide_orphans)
 
     if args.json_out:

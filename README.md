@@ -39,6 +39,12 @@ Skip orphan-note reporting when you only care about link breakage:
 python auditor.py --root example_vault --hide-orphans
 ```
 
+Exclude templates or archive folders from the audit:
+
+```bash
+python auditor.py --root example_vault --exclude-glob templates/** --exclude-glob archive/**
+```
+
 ## Example output
 
 ```text
