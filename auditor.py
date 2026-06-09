@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Repeatable glob relative to the root for notes or folders to exclude.",
     )
+    parser.add_argument("--report-limit", type=int, default=12, help="Max rows to print per issue section.")
     return parser.parse_args()
 
 
@@ -170,7 +171,7 @@ def audit(root: Path, hide_orphans: bool, exclude_globs: list[str]) -> dict[str,
     }
 
 
-def print_report(report: dict[str, object], hide_orphans: bool) -> None:
+def print_report(report: dict[str, object], hide_orphans: bool, report_limit: int) -> None:
     broken_links = report["broken_links"]
     ambiguous_links = report["ambiguous_links"]
     duplicate_titles = report["duplicate_titles"]
@@ -188,30 +189,30 @@ def print_report(report: dict[str, object], hide_orphans: bool) -> None:
 
     if broken_links:
         print("\nBroken links:")
-        for row in broken_links[:12]:
+        for row in broken_links[:report_limit]:
             print(f"  {row['source']} -> {row['target']} ({row['kind']})")
 
     if ambiguous_links:
         print("\nAmbiguous links:")
-        for row in ambiguous_links[:8]:
+        for row in ambiguous_links[:report_limit]:
             matches = ", ".join(row["matches"])
             print(f"  {row['source']} -> {row['target']} maps to {matches}")
 
     if duplicate_titles:
         print("\nDuplicate titles:")
-        for row in duplicate_titles[:8]:
+        for row in duplicate_titles[:report_limit]:
             print(f"  {row['title']}: {', '.join(row['paths'])}")
 
     if not hide_orphans and orphans:
         print("\nSample orphans:")
-        for rel_path in orphans[:12]:
+        for rel_path in orphans[:report_limit]:
             print(f"  {rel_path}")
 
 
 def main() -> None:
     args = parse_args()
     report = audit(args.root, hide_orphans=args.hide_orphans, exclude_globs=args.exclude_glob)
-    print_report(report, hide_orphans=args.hide_orphans)
+    print_report(report, hide_orphans=args.hide_orphans, report_limit=max(1, args.report_limit))
 
     if args.json_out:
         args.json_out.parent.mkdir(parents=True, exist_ok=True)
