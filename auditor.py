@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import re
 from collections import defaultdict
@@ -82,6 +83,15 @@ def build_lookup(notes: list[Note]) -> dict[str, list[Note]]:
     return lookup
 
 
+def build_suggestion_index(notes: list[Note]) -> dict[str, str]:
+    suggestions: dict[str, str] = {}
+    for note in notes:
+        for candidate in (note.rel_path, note.stem, note.title):
+            normalized = normalize_note_key(candidate)
+            suggestions.setdefault(normalized, note.rel_path)
+    return suggestions
+
+
 def parse_link_target(raw: str) -> str:
     base = raw.split("|", 1)[0].split("#", 1)[0].strip()
     return normalize_note_key(base)
@@ -101,6 +111,7 @@ def resolve_markdown_target(source: Note, root: Path, target: str) -> str | None
 def audit(root: Path, hide_orphans: bool, exclude_globs: list[str]) -> dict[str, object]:
     notes = load_notes(root, exclude_globs)
     lookup = build_lookup(notes)
+    suggestion_index = build_suggestion_index(notes)
     inbound_counts: dict[str, int] = defaultdict(int)
     broken_links: list[dict[str, str]] = []
     ambiguous_links: list[dict[str, object]] = []
@@ -113,7 +124,15 @@ def audit(root: Path, hide_orphans: bool, exclude_globs: list[str]) -> dict[str,
                 continue
             matches = lookup.get(target_key, [])
             if not matches:
-                broken_links.append({"source": note.rel_path, "target": raw_target, "kind": "wikilink"})
+                candidates = difflib.get_close_matches(target_key, suggestion_index.keys(), n=3, cutoff=0.55)
+                broken_links.append(
+                    {
+                        "source": note.rel_path,
+                        "target": raw_target,
+                        "kind": "wikilink",
+                        "suggestions": [suggestion_index[candidate] for candidate in candidates],
+                    }
+                )
             elif len({item.rel_path for item in matches}) > 1:
                 ambiguous_links.append(
                     {
@@ -133,7 +152,15 @@ def audit(root: Path, hide_orphans: bool, exclude_globs: list[str]) -> dict[str,
                 continue
             matches = lookup.get(target_key, [])
             if not matches:
-                broken_links.append({"source": note.rel_path, "target": raw_target, "kind": "markdown"})
+                candidates = difflib.get_close_matches(target_key, suggestion_index.keys(), n=3, cutoff=0.55)
+                broken_links.append(
+                    {
+                        "source": note.rel_path,
+                        "target": raw_target,
+                        "kind": "markdown",
+                        "suggestions": [suggestion_index[candidate] for candidate in candidates],
+                    }
+                )
             elif len({item.rel_path for item in matches}) > 1:
                 ambiguous_links.append(
                     {
@@ -190,7 +217,11 @@ def print_report(report: dict[str, object], hide_orphans: bool, report_limit: in
     if broken_links:
         print("\nBroken links:")
         for row in broken_links[:report_limit]:
-            print(f"  {row['source']} -> {row['target']} ({row['kind']})")
+            suggestion_text = ""
+            suggestions = row.get("suggestions") or []
+            if suggestions:
+                suggestion_text = f" | try {', '.join(suggestions)}"
+            print(f"  {row['source']} -> {row['target']} ({row['kind']}){suggestion_text}")
 
     if ambiguous_links:
         print("\nAmbiguous links:")

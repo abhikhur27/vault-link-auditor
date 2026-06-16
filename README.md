@@ -16,6 +16,7 @@ This tool turns that sprawl into a clean report you can fix in one pass.
 
 - broken `[[wikilinks]]`
 - broken relative markdown links like `[doc](folder/file.md)`
+- likely repair targets for broken links based on nearby note names and titles
 - ambiguous links that could resolve to multiple notes
 - duplicate note titles
 - orphan notes with zero inbound links
@@ -57,6 +58,8 @@ Ambiguous links:   1
 Duplicate titles:  1
 Orphan notes:      1
 ```
+
+Broken-link rows now include likely repair targets when the intended note is close to an existing title or filename.
 
 ## Repository layout
 
