@@ -22,6 +22,11 @@ class Note:
     content: str
 
 
+def is_markdown_reference(target: str) -> bool:
+    suffix = Path(target).suffix.lower()
+    return suffix in {"", ".md", ".markdown"}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Audit an Obsidian-style markdown vault for broken links and note hygiene.")
     parser.add_argument("--root", type=Path, required=True, help="Vault or markdown folder root.")
@@ -92,6 +97,19 @@ def build_suggestion_index(notes: list[Note]) -> dict[str, str]:
     return suggestions
 
 
+def build_asset_index(root: Path, exclude_globs: list[str]) -> set[str]:
+    assets: set[str] = set()
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix.lower() == ".md":
+            continue
+        if should_exclude(path, root, exclude_globs):
+            continue
+        relative = path.relative_to(root).as_posix()
+        assets.add(normalize_note_key(relative))
+        assets.add(normalize_note_key(path.name))
+    return assets
+
+
 def parse_link_target(raw: str) -> str:
     base = raw.split("|", 1)[0].split("#", 1)[0].strip()
     return normalize_note_key(base)
@@ -112,6 +130,7 @@ def audit(root: Path, hide_orphans: bool, exclude_globs: list[str]) -> dict[str,
     notes = load_notes(root, exclude_globs)
     lookup = build_lookup(notes)
     suggestion_index = build_suggestion_index(notes)
+    asset_index = build_asset_index(root, exclude_globs)
     inbound_counts: dict[str, int] = defaultdict(int)
     broken_links: list[dict[str, str]] = []
     ambiguous_links: list[dict[str, object]] = []
@@ -121,6 +140,18 @@ def audit(root: Path, hide_orphans: bool, exclude_globs: list[str]) -> dict[str,
             raw_target = match.group(1) or match.group(2) or ""
             target_key = parse_link_target(raw_target)
             if not target_key:
+                continue
+            if not is_markdown_reference(target_key):
+                if target_key in asset_index:
+                    continue
+                broken_links.append(
+                    {
+                        "source": note.rel_path,
+                        "target": raw_target,
+                        "kind": "embedded asset",
+                        "suggestions": [],
+                    }
+                )
                 continue
             matches = lookup.get(target_key, [])
             if not matches:
@@ -149,6 +180,18 @@ def audit(root: Path, hide_orphans: bool, exclude_globs: list[str]) -> dict[str,
             raw_target = match.group(2).strip()
             target_key = resolve_markdown_target(note, root, raw_target)
             if not target_key:
+                continue
+            if not is_markdown_reference(raw_target):
+                if target_key in asset_index:
+                    continue
+                broken_links.append(
+                    {
+                        "source": note.rel_path,
+                        "target": raw_target,
+                        "kind": "file",
+                        "suggestions": [],
+                    }
+                )
                 continue
             matches = lookup.get(target_key, [])
             if not matches:
